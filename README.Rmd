@@ -1,0 +1,19 @@
+---
+title: "hd_ttd_modeling"
+output: github_document
+---
+
+R code for the manuscript "Adjusting for Heavy Censoring and Double-Dipping to Compare Risk Stratification Abilities of Existing Models for Time to Diagnosis of Huntington Disease" by Grosser, Foes, Li, Parikh, Garcia, and Lotspeich (2025+)
+
+# Data Generation
+
+# Modeling Time to Diagnosis
+
+# Uno's C
+
+# ROC
+
+# Sample Enrichment
+
+
+
