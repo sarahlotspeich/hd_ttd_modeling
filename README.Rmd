@@ -8,9 +8,14 @@ output: github_document
 doc_dir <- dirname(normalizePath(knitr::current_input(dir = TRUE)))
 source(file.path(doc_dir, "Toy-Data", "datagen.R")) # source functions in data generation file for use in data-gen section
 source(file.path(doc_dir, "Functions-Models", "Langbehn_functions.R")) # source functions in data generation file for use in data-gen section
+source(file.path(doc_dir, "Functions-Metrics", "Uno-C-functions.R")) # source functions in data generation file for use in data-gen section
+
  
 library(tidyverse)
 library(survival)
+library(pec)
+library(rsample)
+library(survAUC)
 
 ```
 
@@ -102,8 +107,11 @@ head(sim_data)
 For simplicity, this simulated data set has no missing data other than censored times of diagnosis. 
 
 # Modeling Time to Diagnosis
+We can fit all four discussed models for time to diagnosis. The Langbehn model does not directly model time to diagnosis, but age at diagnosis, so some wrapper functions are necessary.
 
-```{r model-fits, message=FALSE}
+```{r model-fits, message=FALSE, warning=FALSE}
+# source("Langbehn_functions.R")    # build functions for Langbehn model
+
 # CAP model: Accelerated failure time model with age at study start and CAG repeat number (and their interaction) as covariates
 CAP_model <- survreg(Surv(W, delta) ~ age_0 + CAG:age_0,
                      data = sim_data, dist = "loglogistic")
@@ -114,23 +122,156 @@ MRS_model <- coxph(Surv(W, delta) ~ factor(diagconf) + motscore + motscore2 +
                      CAG:motscore + CAG:age_0,
                    data = sim_data, x = TRUE)
 
-# PI model: Cox proportinal hazards model with motor score, SDMT, and CAG repeat number age product as covariates 
+# PI model: Cox proportional hazards model with motor score, SDMT, and CAG repeat number age product as covariates 
 PI_model <- coxph(Surv(W, delta) ~ motscore + sdmt1 + CAP,
                   data = sim_data, x = TRUE)
 
 # Langbehn model: parametric survival with baseline age and CAG repeat number as covariates
 Langbehn_params <- tryCatch(
-fit_langbehn_model(sim_data, decay_vals = c(0.13, 0.14)),
-error = function(e) {
-  message(paste("Langbehn fit failed on fold", i, ":", e$message))
-  return(NULL)
-  }
-)
+fit_langbehn_model(sim_data, decay_vals = c(0.13, 0.14)))
 
 ```
 
 # Uno's C
+```{r uno-c}
+# source("Uno-C-functions.R")
 
+# set random seed
+set.seed(2025)
+n_splits = 5
+
+# create training-testing folds, with stratification by delta to preserve censoring rate
+folds <- vfold_cv(sim_data, v = n_splits, strata = delta)
+
+# summarize censoring information for each training and testing split
+fold_censoring_summary <- map_dfr(1:n_splits, function(i) {
+  test_data <- assessment(folds$splits[[i]])
+  event_rate <- mean(test_data$delta == 1)
+  tibble(
+    fold = i,
+    event_rate = event_rate,
+    censoring_rate = 1 - event_rate,
+    n = nrow(test_data),
+    n_events = sum(test_data$delta == 1)
+  )
+})
+print(fold_censoring_summary)
+
+# preallocate output for models
+fitted_models_by_fold <- vector("list", length = n_splits)
+
+for (i in 1:n_splits) {
+  # training-testing split i
+  split <- folds$splits[[i]]
+  
+  # training set i
+  train_data <- analysis(split)
+  
+  # testing set i
+  test_data  <- assessment(split)
+
+  # CAP model
+  CAP_model <- survreg(Surv(W, delta) ~ age_0 + CAG:age_0,
+                       data = train_data, dist = "loglogistic")
+
+  # MRS model
+  MRS_model <- coxph(Surv(W, delta) ~ factor(diagconf) +
+                       motscore + motscore2 +
+                       scnt1 + swrt1 + sit1 + sdmt1 + CAG + age_0 +
+                       CAG:motscore + CAG:age_0,
+                     data = train_data, x = TRUE)
+
+  # PI model
+  PI_model <- coxph(Surv(W, delta) ~ motscore + sdmt1 + CAP,
+                    data = train_data, x = TRUE)
+
+  Langbehn_params <- tryCatch(
+  fit_langbehn_model(train_data, decay_vals = c(0.13, 0.14)),
+  error = function(e) {
+    message(paste("Langbehn fit failed on fold", i, ":", e$message))
+    return(NULL)
+    }
+  )
+
+  # Linear predictors (negate for AFT to maintain directionality)
+  lp_CAP <- -predict(CAP_model, newdata = test_data, type = "lp")
+  lp_MRS <-  predict(MRS_model, newdata = test_data, type = "lp")
+  lp_PI  <-  predict(PI_model,  newdata = test_data, type = "lp")
+  
+  # Langbehn-based risk score (CDF of diagnosis in next 5 years)
+  risk_Langbehn <- Langbehn_cond_CDF(Langbehn_params,
+                                     current_age = test_data$age_0,
+                                     time_to_diag = 5,
+                                     cag = test_data$CAG)
+  
+  # Store models, linear predictors, and training and testing data
+  fitted_models_by_fold[[i]] <- list(
+    CAP = CAP_model,
+    MRS = MRS_model,
+    PI = PI_model,
+    Langbehn = Langbehn_params,
+    lp_CAP = lp_CAP,
+    lp_MRS = lp_MRS,
+    lp_PI  = lp_PI,
+    lp_Langbehn = risk_Langbehn,
+    train_data = train_data,
+    test_data = test_data
+  )
+}
+
+# Extract Langbehn parameter estimates across folds
+langbehn_params_all <- map(fitted_models_by_fold, ~ .x$Langbehn) %>%
+  do.call(rbind, .) %>%
+  as.data.frame()
+
+# Name the parameters for clarity
+colnames(langbehn_params_all) <- c("mu_intercept", "mu_scale", "mu_decay",
+                                   "sigma_intercept", "sigma_scale", "sigma_decay")
+
+# Show the parameter estimates across folds
+# print(langbehn_params_all)
+
+custom_uno_results <- map_dfr(1:5, function(fold_idx) {
+  models <- fitted_models_by_fold[[fold_idx]]
+  train_data <- models$train_data
+  test_data  <- models$test_data
+
+  # Fit KM for censoring distribution from training data
+  km_cens <- survfit(Surv(W, 1 - delta) ~ 1, data = train_data)
+  G_hat_left <- function(t) {
+    s <- summary(km_cens, times = unique(c(0, km_cens$time)), extend = TRUE)
+    approx(
+      x = s$time,
+      y = s$surv,
+      xout = t - 1e-8,
+      method = "constant",
+      f = 0,
+      rule = 2
+    )$y
+  }
+
+  # Prepare output across models and t_star
+  bind_rows(
+    tibble(model = "Langbehn", lp = models$lp_Langbehn),
+    tibble(model = "CAP", lp = models$lp_CAP),
+    tibble(model = "MRS", lp = models$lp_MRS),
+    tibble(model = "PIN", lp = models$lp_PI)
+  ) %>%
+    mutate(fold = fold_idx) %>%
+    group_by(model, fold) %>%
+    group_modify(~ {
+      test_data$lp <- .x$lp
+      map_dfr(1:8, function(t_star) {
+        tibble(
+          time = t_star,
+          uno_c_custom = compute_uno_c(test_data, G_hat_left, t_star)
+        )
+      })
+    })
+})
+
+print(custom_uno_results)
+```
 # ROC
 
 # Sample Enrichment
