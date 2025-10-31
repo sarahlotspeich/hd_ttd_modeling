@@ -6,8 +6,117 @@ output: github_document
 R code for the manuscript "Adjusting for Heavy Censoring and Double-Dipping to Compare Risk Stratification Abilities of Existing Models for Time to Diagnosis of Huntington Disease" by Grosser, Foes, Li, Parikh, Garcia, and Lotspeich (2025+)
 
 # Data Generation
+We can simulate data from a Huntington disease clinical trial in order to evaluate various models for time to diagnosis. We generate data to match observations from the ENROLL-HD longitudinal study of Huntington disease. 
+
+```{r data-gen, warning=FALSE}
+# source("datagen.R")    # build functions for data generation
+
+n = 1000               # sample size
+cens.rate = 0.78       # desired censoring rate (approximate)
+
+dat <- data.frame(diag = r_diag(n, cens.rate),
+                  age_0 = r_age(n, diag),
+                  CAG = r_cag(n, diag),
+                  sex = r_sex(n, diag),
+                  diagconf = r_dcl(n, diag),
+                  motscore = r_tms(n, diag),
+                  sdmt1 = r_sdmt(n, diag),
+                  swrt1 = r_sword(n, diag),
+                  scnt1 = r_scolor(n, diag),
+                  sit1 = r_sint(n, diag)
+)
+
+dat <- dat %>%
+  mutate(motscore2 = motscore^2,
+         DCL1 = as.integer(diagconf == 1),
+         DCL2 = as.integer(diagconf == 2),
+         DCL3 = as.integer(diagconf == 3),
+         cagMotscore = CAG*motscore,
+         cagAge = CAG*age_0)
+design.mat <- model.matrix( ~ 1 + age_0 + sdmt1 + CAG + motscore + motscore2 +
+                              cagMotscore + cagAge + swrt1 + scnt1 + sit1 +
+                              DCL1 + DCL2 + DCL3, data = dat)
+
+# define parameters for covariates in outcome model
+beta <- c(
+  `(Intercept)` = -3.2,
+  age_0 = 0.02,
+  sdmt1 = -0.015,
+  CAG = 0.08,
+  motscore = 0.03,
+  motscore2 = 0.0005,
+  cagMotscore = 0.002,
+  cagAge = 0.001,
+  swrt1 = -0.004,
+  scnt1 = -0.003,
+  sit1 = -0.005,
+  DCL1 = 0.15,
+  DCL2 = 0.30,
+  DCL3 = 0.50
+)
+
+eta <- drop(design.mat %*% beta)
+
+shape <- 1.7 # Weibull shape parameter
+scale <- 3   # weibull scale parameter
+
+# generate uniform random variable for inverse transform
+U <- runif(n)
+
+# generate event times X using the proportional hazards model
+X <- scale * (-log(U) / exp(eta))^(1 / shape)
+
+# generate censoring times
+C <- rexp(n = n, rate = cens.rate)
+
+# Observed time and censoring indicator
+W <- pmin(X, C)
+delta <- as.numeric(X <= C)
+sum(delta)
+
+# combine survival outcome data and covariates for complete dataset
+sim_data <- dat %>%
+  mutate(X = X,
+         C = C,
+         W = W,
+         delta = delta,
+         CAP = age_0 * (CAG - 34)) %>%
+  filter(CAG > 40 & CAG < 57)
+
+head(sim_data)
+
+
+```
+
+For simplicity, this simulated data set has no missing data other than censored times of diagnosis. 
 
 # Modeling Time to Diagnosis
+
+```{r model-fits, message=FALSE}
+# CAP model: Accelerated failure time model with age at study start and CAG repeat number (and their interaction) as covariates
+CAP_model <- survreg(Surv(W, delta) ~ age_0 + CAG:age_0,
+                     data = sim_data, dist = "loglogistic")
+
+# MRS model: Cox proportional hazards model with DCL, motor score, Stroop number, Stroop word, Stroop interference, SDMT, CAG repeat number, age at study start as covariates
+MRS_model <- coxph(Surv(W, delta) ~ factor(diagconf) + motscore + motscore2 +
+                     scnt1 + swrt1 + sit1 + sdmt1 + CAG + age_0 +
+                     CAG:motscore + CAG:age_0,
+                   data = sim_data, x = TRUE)
+
+# PI model: Cox proportinal hazards model with motor score, SDMT, and CAG repeat number age product as covariates 
+PI_model <- coxph(Surv(W, delta) ~ motscore + sdmt1 + CAP,
+                  data = sim_data, x = TRUE)
+
+# Langbehn model: parametric survival with baseline age and CAG repeat number as covariates
+Langbehn_params <- tryCatch(
+fit_langbehn_model(sim_data, decay_vals = c(0.13, 0.14)),
+error = function(e) {
+  message(paste("Langbehn fit failed on fold", i, ":", e$message))
+  return(NULL)
+  }
+)
+
+```
 
 # Uno's C
 

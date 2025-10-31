@@ -52,7 +52,7 @@ r_sex <- function(n, diag, prop = c(0.40, 0.46)) {
   n1 <- n - n0
   sex[diag == 0] <- ifelse(runif(n0) <= prop[1], "male", "female") # censored
   sex[diag == 1] <- ifelse(runif(n1) <= prop[2], "male", "female") # observed diagnosis
-  return(factor(sex, labels = "male", "female"))
+  return(factor(sex, labels = c("male", "female")))
 }
 sex <- r_sex(n, diag)
 
