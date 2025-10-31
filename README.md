@@ -307,26 +307,116 @@ custom_uno_results <- map_dfr(1:5, function(fold_idx) {
       })
     })
 })
-
-print(custom_uno_results)
+# display Uno's C results from custom function
+head(custom_uno_results)
 ```
 
-    ## # A tibble: 160 × 4
-    ## # Groups:   model, fold [20]
-    ##    model     fold  time uno_c_custom
-    ##    <chr>    <int> <int>        <dbl>
-    ##  1 CAP          1     1        0.703
-    ##  2 CAP          1     2        0.699
-    ##  3 CAP          1     3        0.699
-    ##  4 CAP          1     4        0.699
-    ##  5 CAP          1     5        0.699
-    ##  6 CAP          1     6        0.699
-    ##  7 CAP          1     7        0.699
-    ##  8 CAP          1     8        0.699
-    ##  9 Langbehn     1     1        0.694
-    ## 10 Langbehn     1     2        0.690
-    ## # ℹ 150 more rows
+    ## # A tibble: 6 × 4
+    ## # Groups:   model, fold [1]
+    ##   model  fold  time uno_c_custom
+    ##   <chr> <int> <int>        <dbl>
+    ## 1 CAP       1     1        0.703
+    ## 2 CAP       1     2        0.699
+    ## 3 CAP       1     3        0.699
+    ## 4 CAP       1     4        0.699
+    ## 5 CAP       1     5        0.699
+    ## 6 CAP       1     6        0.699
+
+``` r
+# create event weights for global Uno's C values across times by fold
+event_weights <- map_dfr(1:5, function(fold_idx) {
+  train_data <- fitted_models_by_fold[[fold_idx]]$train_data
+
+  # Event counts at each t* in training data
+  weights <- map_dbl(1:8, function(t) {
+    sum(train_data$W == t & train_data$delta == 1)
+  })
+  weights <- weights / sum(weights)
+
+  tibble(
+    fold = fold_idx,
+    time = 1:8,
+    weight = weights
+  )
+})
+
+# summarize Uno's C global values and combine with time-specific data
+global_iAUC <- custom_uno_results %>%
+  filter(!is.na(time)) %>%
+  left_join(event_weights, by = c("fold", "time")) %>%
+  group_by(fold, model) %>%
+  summarize(
+    time = NA_integer_,
+    uno_c_custom = weighted.mean(uno_c_custom, weight, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+head(custom_uno_results <- bind_rows(custom_uno_results, global_iAUC))
+```
+
+    ## # A tibble: 6 × 4
+    ## # Groups:   model, fold [1]
+    ##   model  fold  time uno_c_custom
+    ##   <chr> <int> <int>        <dbl>
+    ## 1 CAP       1     1        0.703
+    ## 2 CAP       1     2        0.699
+    ## 3 CAP       1     3        0.699
+    ## 4 CAP       1     4        0.699
+    ## 5 CAP       1     5        0.699
+    ## 6 CAP       1     6        0.699
 
 # ROC
+
+``` r
+CV_ROC_results <- map_dfr(1:5, function(i) {
+  models    <- fitted_models_by_fold[[i]]
+  test_data <- models$test_data
+
+  markers <- list(
+    Langbehn = models$lp_Langbehn,
+    CAP = models$lp_CAP,
+    MRS = models$lp_MRS,
+    PIN = models$lp_PI
+  )
+
+  # For each model and predict_time, compute AUC
+  map_dfr(names(markers), function(model_name) {
+    marker_vec <- markers[[model_name]]
+
+    map_dfr(1:8, function(t_star) {
+      auc_val <- tryCatch(
+        suppressWarnings(
+          survivalROC(
+            Stime        = test_data$W,
+            status       = test_data$delta,
+            marker       = marker_vec,
+            predict.time = t_star,
+            method       = "KM"
+          )$AUC
+        ),
+        error = function(e) NA_real_
+      )
+      tibble(
+        fold         = i,
+        model        = model_name,
+        predict_time = t_star,
+        AUC          = auc_val
+      )
+    })
+  })
+})
+
+head(CV_ROC_results)
+```
+
+    ## # A tibble: 6 × 4
+    ##    fold model    predict_time   AUC
+    ##   <int> <chr>           <int> <dbl>
+    ## 1     1 Langbehn            1    NA
+    ## 2     1 Langbehn            2    NA
+    ## 3     1 Langbehn            3    NA
+    ## 4     1 Langbehn            4    NA
+    ## 5     1 Langbehn            5    NA
+    ## 6     1 Langbehn            6    NA
 
 # Sample Enrichment
