@@ -3,6 +3,16 @@ title: "hd_ttd_modeling"
 output: github_document
 ---
 
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+# Absolute path to the *current Rmd* being knitted
+doc_dir <- dirname(normalizePath(knitr::current_input(dir = TRUE)))
+source(file.path(doc_dir, "Toy-Data", "datagen.R")) # source functions in data generation file for use in data-gen section
+# 
+library(tidyverse)
+library(survival)
+
+```
+
 R code for the manuscript "Adjusting for Heavy Censoring and Double-Dipping to Compare Risk Stratification Abilities of Existing Models for Time to Diagnosis of Huntington Disease" by Grosser, Foes, Li, Parikh, Garcia, and Lotspeich (2025+)
 
 # Data Generation
