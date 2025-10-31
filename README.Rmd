@@ -7,7 +7,8 @@ output: github_document
 # Absolute path to the *current Rmd* being knitted
 doc_dir <- dirname(normalizePath(knitr::current_input(dir = TRUE)))
 source(file.path(doc_dir, "Toy-Data", "datagen.R")) # source functions in data generation file for use in data-gen section
-# 
+source(file.path(doc_dir, "Functions-Models", "Langbehn_functions.R")) # source functions in data generation file for use in data-gen section
+ 
 library(tidyverse)
 library(survival)
 
