@@ -89,9 +89,9 @@ X <- scale * (-log(U) / exp(eta))^(1 / shape)
 C <- rexp(n = n, rate = cens.rate)
 
 # Observed time and censoring indicator
-W <- pmin(X, C)
-delta <- as.numeric(X <= C)
-sum(delta)
+W <- pmin(ceiling(X), ceiling(C))
+delta <- as.numeric(ceiling(X) <= ceiling(C))
+sum(delta) 
 
 # combine survival outcome data and covariates for complete dataset
 sim_data <- dat %>%
