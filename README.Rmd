@@ -28,6 +28,8 @@ We can simulate data from a Huntington disease clinical trial in order to evalua
 ```{r data-gen, warning=FALSE}
 # source("datagen.R")    # build functions for data generation
 
+set.seed(2025)
+
 n = 1000               # sample size
 cens.rate = 0.78       # desired censoring rate (approximate)
 
@@ -96,13 +98,12 @@ sim_data <- dat %>%
   mutate(X = X,
          C = C,
          W = W,
+         W_age = W + age_0,
          delta = delta,
          CAP = age_0 * (CAG - 34)) %>%
   filter(CAG > 40 & CAG < 57)
 
 head(sim_data)
-
-
 ```
 
 For simplicity, this simulated data set has no missing data other than censored times of diagnosis. 
@@ -129,8 +130,7 @@ PI_model <- coxph(Surv(W, delta) ~ motscore + sdmt1 + CAP,
 
 # Langbehn model: parametric survival with baseline age and CAG repeat number as covariates
 Langbehn_params <- tryCatch(
-fit_langbehn_model(sim_data, decay_vals = c(0.13, 0.14)))
-
+fit_langbehn_model(sim_data, decay_vals = seq(0.5, 1, by = 0.01)))
 ```
 
 # Uno's C
@@ -187,7 +187,7 @@ for (i in 1:n_splits) {
                     data = train_data, x = TRUE)
 
   Langbehn_params <- tryCatch(
-  fit_langbehn_model(train_data, decay_vals = c(0.13, 0.14)),
+  fit_langbehn_model(train_data, decay_vals = seq(0.5, 1, by = 0.01)),
   error = function(e) {
     message(paste("Langbehn fit failed on fold", i, ":", e$message))
     return(NULL)
@@ -306,7 +306,6 @@ head(custom_uno_results <- bind_rows(custom_uno_results, global_iAUC))
 
 # ROC
 ```{r ROC}
-
 CV_ROC_results <- map_dfr(1:5, function(i) {
   models    <- fitted_models_by_fold[[i]]
   test_data <- models$test_data
