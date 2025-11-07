@@ -16,6 +16,7 @@ library(survival)
 library(pec)
 library(rsample)
 library(survAUC)
+library(survivalROC)
 library(purrr)
 
 ```
@@ -30,7 +31,7 @@ We can simulate data from a Huntington disease clinical trial in order to evalua
 
 set.seed(2025)
 
-n = 1000               # sample size
+n = 3000               # sample size
 cens.rate = 0.78       # desired censoring rate (approximate)
 
 dat <- data.frame(diag = r_diag(n, cens.rate),
@@ -262,7 +263,7 @@ custom_uno_results <- map_dfr(1:5, function(fold_idx) {
     group_by(model, fold) %>%
     group_modify(~ {
       test_data$lp <- .x$lp
-      map_dfr(1:8, function(t_star) {
+      map_dfr(1:2, function(t_star) {
         tibble(
           time = t_star,
           uno_c_custom = compute_uno_c(test_data, G_hat_left, t_star)
@@ -278,7 +279,7 @@ event_weights <- map_dfr(1:5, function(fold_idx) {
   train_data <- fitted_models_by_fold[[fold_idx]]$train_data
 
   # Event counts at each t* in training data
-  weights <- map_dbl(1:8, function(t) {
+  weights <- map_dbl(1:2, function(t) {
     sum(train_data$W == t & train_data$delta == 1)
   })
   weights <- weights / sum(weights)
@@ -321,9 +322,8 @@ CV_ROC_results <- map_dfr(1:5, function(i) {
   map_dfr(names(markers), function(model_name) {
     marker_vec <- markers[[model_name]]
 
-    map_dfr(1:8, function(t_star) {
-      auc_val <- tryCatch(
-        suppressWarnings(
+    map_dfr(1:2, function(t_star) {
+      auc_val <- 
           survivalROC(
             Stime        = test_data$W,
             status       = test_data$delta,
@@ -331,9 +331,6 @@ CV_ROC_results <- map_dfr(1:5, function(i) {
             predict.time = t_star,
             method       = "KM"
           )$AUC
-        ),
-        error = function(e) NA_real_
-      )
       tibble(
         fold         = i,
         model        = model_name,
