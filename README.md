@@ -10,8 +10,8 @@ Li, Parikh, Garcia, and Lotspeich (2025+)
 
 We can simulate data from a Huntington disease clinical trial in order
 to evaluate various models for time to diagnosis. We generate data to
-match observations from the ENROLL-HD longitudinal study of Huntington
-disease.
+closely mimic observations from the ENROLL-HD longitudinal study of
+Huntington disease.
 
 ``` r
 # source("datagen.R")    # build functions for data generation
@@ -154,6 +154,10 @@ fit_langbehn_model(sim_data, decay_vals = seq(0.5, 1, by = 0.01)))
     ## Best negloglik = 10517.448
 
 # Uno’s C
+
+To evaluate the four different models, we use Uno’s Concordance index.
+We cross-validate over 5 folds for internal validation. In addition to
+time-specific values, we also calculate a weighted global Uno’s C value.
 
 ``` r
 # source("Uno-C-functions.R")
@@ -370,8 +374,12 @@ head(custom_uno_results <- bind_rows(custom_uno_results, global_iAUC))
 
 # ROC
 
+In addition to Uno’s C, we calculate the area under the curve (AUC) of
+the receiver operating characteristic (ROC) curve. For simplicity, we
+calculate these values for one and two years.
+
 ``` r
-CV_ROC_results <- map_dfr(1:5, function(i) {
+CV_ROC_results <- map_dfr(1:2, function(i) {
   models    <- fitted_models_by_fold[[i]]
   test_data <- models$test_data
 
@@ -419,6 +427,11 @@ head(CV_ROC_results)
     ## 6     1 MRS                 2 0.972
 
 # Sample Enrichment
+
+To optimize preventative clinical trials, we can use these models to
+enrich samples by targeting patients closest to diagnosis. We can
+calculate optimal cut-off thresholds for the PIN, CAP, and MRS models to
+select patients and sample sizes necessary for certain trial powers.
 
 ``` r
 #source("sample-enrichment-functions.R")
@@ -540,23 +553,8 @@ summary_wide <- enrichment_summary %>%
               names_prefix = "n_",
               values_from = sample_size)
 
-print(summary_wide, n = 12)
-```
+#print(summary_wide, n = 12)
 
-    ## # A tibble: 9 × 6
-    ##    time model event_rate n_0.3 n_0.4 n_0.5
-    ##   <int> <chr>      <dbl> <dbl> <dbl> <dbl>
-    ## 1     2 CAP        0.972    27    18    14
-    ## 2     3 CAP        0.927    34    22    16
-    ## 3     4 CAP        0.927    34    22    16
-    ## 4     2 MRS        0.962    29    19    14
-    ## 5     3 MRS        0.938    33    21    15
-    ## 6     4 MRS        0.938    33    21    15
-    ## 7     2 PIN        0.964    28    19    14
-    ## 8     3 PIN        0.940    32    21    15
-    ## 9     4 PIN        0.940    32    21    15
-
-``` r
 # Get cut-points in long format
 cut_long <- roc_thresholds %>%
   select(time, CAP_cut, MRS_cut, PIN_cut) %>%
@@ -572,4 +570,18 @@ summary_wide_with_cut <- summary_wide %>%
          event_rate = round(event_rate, 3),
          cut_point = round(cut_point, 2)) %>%
   select(time, model, cut_point, event_rate, starts_with("n_"))
+print(summary_wide_with_cut)
 ```
+
+    ## # A tibble: 9 × 7
+    ##    time model cut_point event_rate n_0.3 n_0.4 n_0.5
+    ##   <int> <chr>     <dbl>      <dbl> <dbl> <dbl> <dbl>
+    ## 1     2 CAP      326.        0.972    27    18    14
+    ## 2     3 CAP      274.        0.927    34    22    16
+    ## 3     4 CAP      274.        0.927    34    22    16
+    ## 4     2 MRS        8.66      0.962    29    19    14
+    ## 5     3 MRS        7.44      0.938    33    21    15
+    ## 6     4 MRS        7.44      0.938    33    21    15
+    ## 7     2 PIN        0.21      0.964    28    19    14
+    ## 8     3 PIN       -0.62      0.94     32    21    15
+    ## 9     4 PIN       -0.62      0.94     32    21    15
