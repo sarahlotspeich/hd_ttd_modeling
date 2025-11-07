@@ -16,7 +16,9 @@ disease.
 ``` r
 # source("datagen.R")    # build functions for data generation
 
-n = 1000               # sample size
+set.seed(2025)
+
+n = 3000               # sample size
 cens.rate = 0.78       # desired censoring rate (approximate)
 
 dat <- data.frame(diag = r_diag(n, cens.rate),
@@ -75,12 +77,12 @@ X <- scale * (-log(U) / exp(eta))^(1 / shape)
 C <- rexp(n = n, rate = cens.rate)
 
 # Observed time and censoring indicator
-W <- pmin(X, C)
-delta <- as.numeric(X <= C)
-sum(delta)
+W <- pmin(ceiling(X), ceiling(C))
+delta <- as.numeric(ceiling(X) <= ceiling(C))
+sum(delta) 
 ```
 
-    ## [1] 705
+    ## [1] 2658
 
 ``` r
 # combine survival outcome data and covariates for complete dataset
@@ -88,6 +90,7 @@ sim_data <- dat %>%
   mutate(X = X,
          C = C,
          W = W,
+         W_age = W + age_0,
          delta = delta,
          CAP = age_0 * (CAG - 34)) %>%
   filter(CAG > 40 & CAG < 57)
@@ -95,27 +98,27 @@ sim_data <- dat %>%
 head(sim_data)
 ```
 
-    ##   diag    age_0 CAG    sex diagconf  motscore    sdmt1     swrt1    scnt1
-    ## 1    1 47.97340  46   male        1 19.815860 36.77801  74.26561 42.91648
-    ## 2    0 45.67558  47 female        0  7.909145 32.87784  58.44761 67.41093
-    ## 3    0 33.58008  44 female        2  4.650563 45.34272  44.84870 37.00444
-    ## 4    1 37.44354  43 female        2  6.889976 54.70478  81.06527 75.93027
-    ## 5    1 62.65389  42   male        3  3.713107 34.98918 102.59544 68.03526
-    ## 6    1 29.17181  41 female        0  2.594584 44.07967  85.90685 76.16116
-    ##       sit1  motscore2 DCL1 DCL2 DCL3 cagMotscore   cagAge         X         C
-    ## 1 30.18573 392.668289    1    0    0    911.5295 2206.776 0.2792411 0.4759966
-    ## 2 40.12274  62.554569    0    0    0    371.7298 2146.752 0.3971169 1.3083983
-    ## 3 38.52677  21.627736    0    1    0    204.6248 1477.523 1.0700101 1.1052819
-    ## 4 19.87406  47.471771    0    1    0    296.2690 1610.072 0.5126373 1.6386207
-    ## 5 27.26405  13.787160    0    0    1    155.9505 2631.464 0.8494234 0.2988568
-    ## 6 33.66016   6.731865    0    0    0    106.3779 1196.044 3.7328927 3.3924873
-    ##           W delta      CAP
-    ## 1 0.2792411     1 575.6808
-    ## 2 0.3971169     1 593.7826
-    ## 3 1.0700101     1 335.8008
-    ## 4 0.5126373     1 336.9919
-    ## 5 0.2988568     0 501.2312
-    ## 6 3.3924873     0 204.2027
+    ##   diag    age_0 CAG    sex diagconf  motscore    sdmt1    swrt1    scnt1
+    ## 1    1 48.21408  50   male        1 15.284268 36.97621 98.52859 59.20743
+    ## 2    1 49.84176  44   male        3 10.425100 60.40650 57.83964 67.77546
+    ## 3    1 54.03482  49 female        3  8.794773 23.10561 38.92302 51.06457
+    ## 4    1 53.77018  50 female        3 15.518776 19.47441 59.67254 72.87046
+    ## 5    0 30.29905  44 female        3  1.868206 24.98699 85.97723 85.51136
+    ## 6    1 43.44430  46 female        2  2.220779 38.42011 84.40090 54.59343
+    ##       sit1  motscore2 DCL1 DCL2 DCL3 cagMotscore   cagAge          X          C
+    ## 1 34.35674 233.608834    1    0    0   764.21338 2410.704 0.22033424 0.65186168
+    ## 2 19.17258 108.682714    0    0    1   458.70441 2193.038 0.08669609 0.14352823
+    ## 3 34.03942  77.348038    0    0    1   430.94389 2647.706 0.13292150 0.44934939
+    ## 4 48.41397 240.832414    0    0    1   775.93881 2688.509 0.07491362 1.01331141
+    ## 5 47.78099   3.490195    0    0    1    82.20108 1333.158 0.35026721 3.89074740
+    ## 6 31.89401   4.931860    0    1    0   102.15584 1998.438 0.51559798 0.06976732
+    ##   W    W_age delta      CAP
+    ## 1 1 49.21408     1 771.4253
+    ## 2 1 50.84176     1 498.4176
+    ## 3 1 55.03482     1 810.5223
+    ## 4 1 54.77018     1 860.3229
+    ## 5 1 31.29905     1 302.9905
+    ## 6 1 44.44430     1 521.3316
 
 For simplicity, this simulated data set has no missing data other than
 censored times of diagnosis.
@@ -145,10 +148,10 @@ PI_model <- coxph(Surv(W, delta) ~ motscore + sdmt1 + CAP,
 
 # Langbehn model: parametric survival with baseline age and CAG repeat number as covariates
 Langbehn_params <- tryCatch(
-fit_langbehn_model(sim_data, decay_vals = c(0.13, 0.14)))
+fit_langbehn_model(sim_data, decay_vals = seq(0.5, 1, by = 0.01)))
 ```
 
-    ## Best negloglik = 0
+    ## Best negloglik = 10517.448
 
 # Uno’s C
 
@@ -180,11 +183,11 @@ print(fold_censoring_summary)
     ## # A tibble: 5 × 5
     ##    fold event_rate censoring_rate     n n_events
     ##   <int>      <dbl>          <dbl> <int>    <int>
-    ## 1     1      0.717          0.283   184      132
-    ## 2     2      0.717          0.283   184      132
-    ## 3     3      0.717          0.283   184      132
-    ## 4     4      0.717          0.283   184      132
-    ## 5     5      0.716          0.284   183      131
+    ## 1     1      0.922         0.0784   523      482
+    ## 2     2      0.898         0.102    522      469
+    ## 3     3      0.910         0.0900   522      475
+    ## 4     4      0.920         0.0805   522      480
+    ## 5     5      0.902         0.0977   522      471
 
 ``` r
 # preallocate output for models
@@ -216,7 +219,7 @@ for (i in 1:n_splits) {
                     data = train_data, x = TRUE)
 
   Langbehn_params <- tryCatch(
-  fit_langbehn_model(train_data, decay_vals = c(0.13, 0.14)),
+  fit_langbehn_model(train_data, decay_vals = seq(0.5, 1, by = 0.01)),
   error = function(e) {
     message(paste("Langbehn fit failed on fold", i, ":", e$message))
     return(NULL)
@@ -250,11 +253,11 @@ for (i in 1:n_splits) {
 }
 ```
 
-    ## Best negloglik = 0
-    ## Best negloglik = 0
-    ## Best negloglik = 0
-    ## Best negloglik = 0
-    ## Best negloglik = 0
+    ## Best negloglik = 8363.695
+    ## Best negloglik = 8464.994
+    ## Best negloglik = 8401.132
+    ## Best negloglik = 8390.775
+    ## Best negloglik = 8448.324
 
 ``` r
 # Extract Langbehn parameter estimates across folds
@@ -299,7 +302,7 @@ custom_uno_results <- map_dfr(1:5, function(fold_idx) {
     group_by(model, fold) %>%
     group_modify(~ {
       test_data$lp <- .x$lp
-      map_dfr(1:8, function(t_star) {
+      map_dfr(1:2, function(t_star) {
         tibble(
           time = t_star,
           uno_c_custom = compute_uno_c(test_data, G_hat_left, t_star)
@@ -312,15 +315,15 @@ head(custom_uno_results)
 ```
 
     ## # A tibble: 6 × 4
-    ## # Groups:   model, fold [1]
-    ##   model  fold  time uno_c_custom
-    ##   <chr> <int> <int>        <dbl>
-    ## 1 CAP       1     1        0.703
-    ## 2 CAP       1     2        0.699
-    ## 3 CAP       1     3        0.699
-    ## 4 CAP       1     4        0.699
-    ## 5 CAP       1     5        0.699
-    ## 6 CAP       1     6        0.699
+    ## # Groups:   model, fold [3]
+    ##   model     fold  time uno_c_custom
+    ##   <chr>    <int> <int>        <dbl>
+    ## 1 CAP          1     1        0.829
+    ## 2 CAP          1     2        0.828
+    ## 3 Langbehn     1     1        0.801
+    ## 4 Langbehn     1     2        0.800
+    ## 5 MRS          1     1        0.909
+    ## 6 MRS          1     2        0.908
 
 ``` r
 # create event weights for global Uno's C values across times by fold
@@ -328,14 +331,14 @@ event_weights <- map_dfr(1:5, function(fold_idx) {
   train_data <- fitted_models_by_fold[[fold_idx]]$train_data
 
   # Event counts at each t* in training data
-  weights <- map_dbl(1:8, function(t) {
+  weights <- map_dbl(1:2, function(t) {
     sum(train_data$W == t & train_data$delta == 1)
   })
   weights <- weights / sum(weights)
 
   tibble(
     fold = fold_idx,
-    time = 1:8,
+    time = 1:2,
     weight = weights
   )
 })
@@ -355,15 +358,15 @@ head(custom_uno_results <- bind_rows(custom_uno_results, global_iAUC))
 ```
 
     ## # A tibble: 6 × 4
-    ## # Groups:   model, fold [1]
-    ##   model  fold  time uno_c_custom
-    ##   <chr> <int> <int>        <dbl>
-    ## 1 CAP       1     1        0.703
-    ## 2 CAP       1     2        0.699
-    ## 3 CAP       1     3        0.699
-    ## 4 CAP       1     4        0.699
-    ## 5 CAP       1     5        0.699
-    ## 6 CAP       1     6        0.699
+    ## # Groups:   model, fold [3]
+    ##   model     fold  time uno_c_custom
+    ##   <chr>    <int> <int>        <dbl>
+    ## 1 CAP          1     1        0.829
+    ## 2 CAP          1     2        0.828
+    ## 3 Langbehn     1     1        0.801
+    ## 4 Langbehn     1     2        0.800
+    ## 5 MRS          1     1        0.909
+    ## 6 MRS          1     2        0.908
 
 # ROC
 
@@ -383,9 +386,8 @@ CV_ROC_results <- map_dfr(1:5, function(i) {
   map_dfr(names(markers), function(model_name) {
     marker_vec <- markers[[model_name]]
 
-    map_dfr(1:8, function(t_star) {
-      auc_val <- tryCatch(
-        suppressWarnings(
+    map_dfr(1:2, function(t_star) {
+      auc_val <- 
           survivalROC(
             Stime        = test_data$W,
             status       = test_data$delta,
@@ -393,9 +395,6 @@ CV_ROC_results <- map_dfr(1:5, function(i) {
             predict.time = t_star,
             method       = "KM"
           )$AUC
-        ),
-        error = function(e) NA_real_
-      )
       tibble(
         fold         = i,
         model        = model_name,
@@ -412,11 +411,165 @@ head(CV_ROC_results)
     ## # A tibble: 6 × 4
     ##    fold model    predict_time   AUC
     ##   <int> <chr>           <int> <dbl>
-    ## 1     1 Langbehn            1    NA
-    ## 2     1 Langbehn            2    NA
-    ## 3     1 Langbehn            3    NA
-    ## 4     1 Langbehn            4    NA
-    ## 5     1 Langbehn            5    NA
-    ## 6     1 Langbehn            6    NA
+    ## 1     1 Langbehn            1 0.801
+    ## 2     1 Langbehn            2 0.893
+    ## 3     1 CAP                 1 0.827
+    ## 4     1 CAP                 2 0.933
+    ## 5     1 MRS                 1 0.906
+    ## 6     1 MRS                 2 0.972
 
 # Sample Enrichment
+
+``` r
+#source("sample-enrichment-functions.R")
+
+# Compute risk scores for CAP, PIN, and MRS models with published parameters
+sim_data <- sim_data %>%
+  mutate(
+    # Published parameter estimates
+    risk_CAP = age_0 * (CAG - 33.66),
+    risk_MRS = -0.282 * age_0 + 0.140 * CAG + 0.565 * motscore - 0.021 * sdmt1 +
+      0.347 * if_else(diagconf == 1, 1, 0) + 0.542 * if_else(diagconf == 2, 1, 0) +
+      1.086 * if_else(diagconf == 3, 1, 0) - 0.004 * scnt1 +
+      0.002 * swrt1 - 0.023 * sit1 - 0.004 * motscore^2 -
+      0.010 * motscore * CAG + 0.009 * age_0 * CAG,
+    risk_PIN = (51 * motscore - 34 * sdmt1 + 7 * (age_0 * (CAG - 33.66)) - 883) / 1044
+  )
+
+# Compute optimal ROC threshold per model at each time point
+roc_thresholds <- map_dfr(1:4, function(t) {
+  bind_cols(
+    run_survivalROC(sim_data, t, "risk_CAP")  %>% rename_with(~ paste0("CAP_", .), -time),
+    run_survivalROC(sim_data, t, "risk_MRS")  %>% select(-time) %>% rename_with(~ paste0("MRS_", .)),
+    run_survivalROC(sim_data, t, "risk_PIN")  %>% select(-time) %>% rename_with(~ paste0("PIN_", .))
+  )
+})
+
+# View results
+print(roc_thresholds)
+```
+
+    ## # A tibble: 4 × 13
+    ##    time CAP_cut CAP_sens CAP_spec CAP_auc MRS_cut MRS_sens MRS_spec MRS_auc
+    ##   <int>   <dbl>    <dbl>    <dbl>   <dbl>   <dbl>    <dbl>    <dbl>   <dbl>
+    ## 1     1    337.    0.785    0.794   0.836    9.22    0.808    0.794   0.880
+    ## 2     2    326.    0.739    1       0.906    8.66    0.834    0.923   0.939
+    ## 3     3    274.    0.886    1       0.946    7.44    0.910    1       0.950
+    ## 4     4    274.    0.886    1       0.946    7.44    0.910    1       0.950
+    ## # ℹ 4 more variables: PIN_cut <dbl>, PIN_sens <dbl>, PIN_spec <dbl>,
+    ## #   PIN_auc <dbl>
+
+``` r
+# Convert results to long format
+long_roc_data <- roc_thresholds %>%
+  pivot_longer(cols = -time,
+               names_to = c("model", "metric"),
+               names_sep = "_",
+               values_to = "value") %>%
+  mutate(
+    model = factor(model, levels = c("CAP", "MRS", "PIN")),
+    metric = recode(metric, sens = "Sensitivity", spec = "Specificity")
+  ) %>%
+  filter(metric != "cut")
+
+# Plot sensitivity and specificity over time
+ggplot(long_roc_data, aes(x = time, y = value, color = model)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ metric, scales = "free_y") +
+  scale_x_continuous(breaks = 2:5) +
+  labs(x = "Follow-up Time (Years)",
+       y = "Metric Value",
+       color = "Model",
+       title = "Time-Specific IPCW-Adjusted Sensitivity and Specificity",
+       subtitle = "Using optimal cut points per model at each t*") +
+  theme_bw(base_size = 14)
+```
+
+    ## Warning: Using `size` aesthetic for lines was deprecated in ggplot2 3.4.0.
+    ## ℹ Please use `linewidth` instead.
+    ## This warning is displayed once every 8 hours.
+    ## Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
+    ## generated.
+
+![](README_files/figure-gfm/sample-enrichment-1.png)<!-- -->
+
+``` r
+# Define the sample size formula (per arm)
+# Prepare to store results
+enrichment_summary <- expand.grid(
+  time = 2:4,
+  model = c("CAP", "MRS", "PIN"),
+  reduction = c(0.3, 0.4, 0.5),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(event_rate = NA_real_, sample_size = NA_integer_)
+
+# Loop over model-time combinations
+for (i in seq_len(nrow(enrichment_summary))) {
+  row <- enrichment_summary[i, ]
+  t_star <- row$time
+  model <- row$model
+  reduction <- row$reduction
+  
+  # Get cut point for this model and time from your ROC results
+  cut_column <- paste0(model, "_cut")
+  cut_point <- roc_thresholds %>%
+    filter(time == t_star) %>%
+    pull(!!sym(cut_column))
+  
+  # Risk score column name
+  risk_column <- paste0("risk_", model)
+  
+  # Define enriched group: patients above threshold
+  enriched <- sim_data %>%
+    filter(!!sym(risk_column) >= cut_point)
+  
+  # Estimate event rate by t_star in enriched group
+  event_rate <- mean(enriched$W <= t_star & enriched$delta == 1)
+  
+  # Store
+  enrichment_summary$event_rate[i] <- event_rate
+  enrichment_summary$sample_size[i] <- sample_size_binary(p1 = event_rate, effect_size = reduction)
+}
+
+# Optional: reshape wide for easier table export
+summary_wide <- enrichment_summary %>%
+  pivot_wider(id_cols = c(time, model, event_rate),
+              names_from = reduction,
+              names_prefix = "n_",
+              values_from = sample_size)
+
+print(summary_wide, n = 12)
+```
+
+    ## # A tibble: 9 × 6
+    ##    time model event_rate n_0.3 n_0.4 n_0.5
+    ##   <int> <chr>      <dbl> <dbl> <dbl> <dbl>
+    ## 1     2 CAP        0.972    27    18    14
+    ## 2     3 CAP        0.927    34    22    16
+    ## 3     4 CAP        0.927    34    22    16
+    ## 4     2 MRS        0.962    29    19    14
+    ## 5     3 MRS        0.938    33    21    15
+    ## 6     4 MRS        0.938    33    21    15
+    ## 7     2 PIN        0.964    28    19    14
+    ## 8     3 PIN        0.940    32    21    15
+    ## 9     4 PIN        0.940    32    21    15
+
+``` r
+# Get cut-points in long format
+cut_long <- roc_thresholds %>%
+  select(time, CAP_cut, MRS_cut, PIN_cut) %>%
+  pivot_longer(cols = -time,
+               names_to = "model",
+               values_to = "cut_point") %>%
+  mutate(model = str_remove(model, "_cut"))
+
+# Round final results
+summary_wide_with_cut <- summary_wide %>%
+  left_join(cut_long, by = c("time", "model")) %>%
+  mutate(across(starts_with("n_"), round),
+         event_rate = round(event_rate, 3),
+         cut_point = round(cut_point, 2)) %>%
+  select(time, model, cut_point, event_rate, starts_with("n_"))
+```

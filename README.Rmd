@@ -8,7 +8,8 @@ output: github_document
 doc_dir <- dirname(normalizePath(knitr::current_input(dir = TRUE)))
 source(file.path(doc_dir, "Toy-Data", "datagen.R")) # source functions in data generation file for use in data-gen section
 source(file.path(doc_dir, "Functions-Models", "Langbehn_functions.R")) # source functions in data generation file for use in data-gen section
-source(file.path(doc_dir, "Functions-Metrics", "Uno-C-functions.R")) # source functions in data generation file for use in data-gen section
+source(file.path(doc_dir, "Functions-Metrics", "Uno-C-functions.R")) # source functions in data generation file for use in Uno's C calculations
+source(file.path(doc_dir, "Functions-Metrics", "sample-enrichment-functions.R")) # source functions in data generation file for use in sample enrichment
 
  
 library(tidyverse)
@@ -286,7 +287,7 @@ event_weights <- map_dfr(1:5, function(fold_idx) {
 
   tibble(
     fold = fold_idx,
-    time = 1:8,
+    time = 1:2,
     weight = weights
   )
 })
@@ -346,6 +347,123 @@ head(CV_ROC_results)
 
 
 # Sample Enrichment
+```{r sample-enrichment}
+#source("sample-enrichment-functions.R")
 
+# Compute risk scores for CAP, PIN, and MRS models with published parameters
+sim_data <- sim_data %>%
+  mutate(
+    # Published parameter estimates
+    risk_CAP = age_0 * (CAG - 33.66),
+    risk_MRS = -0.282 * age_0 + 0.140 * CAG + 0.565 * motscore - 0.021 * sdmt1 +
+      0.347 * if_else(diagconf == 1, 1, 0) + 0.542 * if_else(diagconf == 2, 1, 0) +
+      1.086 * if_else(diagconf == 3, 1, 0) - 0.004 * scnt1 +
+      0.002 * swrt1 - 0.023 * sit1 - 0.004 * motscore^2 -
+      0.010 * motscore * CAG + 0.009 * age_0 * CAG,
+    risk_PIN = (51 * motscore - 34 * sdmt1 + 7 * (age_0 * (CAG - 33.66)) - 883) / 1044
+  )
+
+# Compute optimal ROC threshold per model at each time point
+roc_thresholds <- map_dfr(1:4, function(t) {
+  bind_cols(
+    run_survivalROC(sim_data, t, "risk_CAP")  %>% rename_with(~ paste0("CAP_", .), -time),
+    run_survivalROC(sim_data, t, "risk_MRS")  %>% select(-time) %>% rename_with(~ paste0("MRS_", .)),
+    run_survivalROC(sim_data, t, "risk_PIN")  %>% select(-time) %>% rename_with(~ paste0("PIN_", .))
+  )
+})
+
+# View results
+print(roc_thresholds)
+
+# Convert results to long format
+long_roc_data <- roc_thresholds %>%
+  pivot_longer(cols = -time,
+               names_to = c("model", "metric"),
+               names_sep = "_",
+               values_to = "value") %>%
+  mutate(
+    model = factor(model, levels = c("CAP", "MRS", "PIN")),
+    metric = recode(metric, sens = "Sensitivity", spec = "Specificity")
+  ) %>%
+  filter(metric != "cut")
+
+# Plot sensitivity and specificity over time
+ggplot(long_roc_data, aes(x = time, y = value, color = model)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ metric, scales = "free_y") +
+  scale_x_continuous(breaks = 2:5) +
+  labs(x = "Follow-up Time (Years)",
+       y = "Metric Value",
+       color = "Model",
+       title = "Time-Specific IPCW-Adjusted Sensitivity and Specificity",
+       subtitle = "Using optimal cut points per model at each t*") +
+  theme_bw(base_size = 14)
+
+
+# Define the sample size formula (per arm)
+# Prepare to store results
+enrichment_summary <- expand.grid(
+  time = 2:4,
+  model = c("CAP", "MRS", "PIN"),
+  reduction = c(0.3, 0.4, 0.5),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(event_rate = NA_real_, sample_size = NA_integer_)
+
+# Loop over model-time combinations
+for (i in seq_len(nrow(enrichment_summary))) {
+  row <- enrichment_summary[i, ]
+  t_star <- row$time
+  model <- row$model
+  reduction <- row$reduction
+  
+  # Get cut point for this model and time from your ROC results
+  cut_column <- paste0(model, "_cut")
+  cut_point <- roc_thresholds %>%
+    filter(time == t_star) %>%
+    pull(!!sym(cut_column))
+  
+  # Risk score column name
+  risk_column <- paste0("risk_", model)
+  
+  # Define enriched group: patients above threshold
+  enriched <- sim_data %>%
+    filter(!!sym(risk_column) >= cut_point)
+  
+  # Estimate event rate by t_star in enriched group
+  event_rate <- mean(enriched$W <= t_star & enriched$delta == 1)
+  
+  # Store
+  enrichment_summary$event_rate[i] <- event_rate
+  enrichment_summary$sample_size[i] <- sample_size_binary(p1 = event_rate, effect_size = reduction)
+}
+
+# Optional: reshape wide for easier table export
+summary_wide <- enrichment_summary %>%
+  pivot_wider(id_cols = c(time, model, event_rate),
+              names_from = reduction,
+              names_prefix = "n_",
+              values_from = sample_size)
+
+print(summary_wide, n = 12)
+
+# Get cut-points in long format
+cut_long <- roc_thresholds %>%
+  select(time, CAP_cut, MRS_cut, PIN_cut) %>%
+  pivot_longer(cols = -time,
+               names_to = "model",
+               values_to = "cut_point") %>%
+  mutate(model = str_remove(model, "_cut"))
+
+# Round final results
+summary_wide_with_cut <- summary_wide %>%
+  left_join(cut_long, by = c("time", "model")) %>%
+  mutate(across(starts_with("n_"), round),
+         event_rate = round(event_rate, 3),
+         cut_point = round(cut_point, 2)) %>%
+  select(time, model, cut_point, event_rate, starts_with("n_"))
+
+```
 
 
